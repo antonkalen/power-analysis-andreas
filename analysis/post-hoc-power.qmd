@@ -1,0 +1,169 @@
+---
+title: Post-hoc power analysis
+date: today
+format: pdf
+  
+  
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+# Load packages ----
+library(here)
+library(readxl)
+library(dplyr)
+library(simr)
+library(lme4)
+library(purrr)
+library(forcats)
+
+# load data ----
+data <- read_excel(here("data/TIll Anton.xlsx"), na = "-111") |> 
+  mutate(
+    across(-outcome, as.factor),
+    predictor = fct_rev(predictor)
+  )
+
+# Set options ---
+nsim <- 1000
+```
+
+We run a post-hoc power analysis using simulation with the simr package in r. First for the unstandardized and then standardized effect sizes
+
+# Unstandardized effect size
+
+## Model
+
+We run a three level model with a random intercept for level 2 and level 3, obtaining the following results:
+
+```{r}
+#| echo: false
+model <- lmer(outcome ~ predictor + (1|id_level_2) + (1|id_level_3), data = data)
+
+summary(model)
+```
+
+## Power for observed effect
+
+Based the observed sample size in each cluster and estimated intra class correlations, we observe the following power for the estimated effect:
+
+```{r}
+#| include: false
+power <- powerSim(
+  model, 
+  test = fixed("predictor0", method = "t"),  
+  nsim = nsim,
+  progress = FALSE
+)
+```
+
+```{r}
+#| echo: false
+power
+```
+
+## Power curve for effect sizes
+
+We now simulate the power for different potential (raw) effect sizes, ranging from 0 to 10.
+
+```{r}
+#| echo: false
+#| message: false
+powerSimES <- function(model, effect_size, nsim = 10) {
+  fixef(model)["predictor0"] <- effect_size
+  
+  power <- powerSim(
+    model, 
+    test = fixed("predictor0", method = "t"),  
+    nsim = nsim,
+    progress = FALSE
+  )
+  
+  summary(power, digits = 3)
+  
+}
+
+power_es <- map_dfr(1:10, \(x) powerSimES(model, x, nsim = nsim), .id = "effect_size")
+
+```
+
+```{r}
+#| echo: false
+power_es |> 
+  mutate(across(c("mean", "lower", "upper"), \(x) round(100 * x))) |> 
+  select(
+    "Effect size" = effect_size,
+    Power = mean,
+    "95% lo" = lower,
+    "95% hi" = upper
+  )
+```
+
+# Standardized effect size
+
+## Model
+
+We run a three level model with a random intercept for level 2 and level 3, obtaining the following results:
+
+```{r}
+#| echo: false
+
+data2 <- data |> mutate(outcome = scale(outcome))
+
+model2 <- lmer(outcome ~ predictor + (1|id_level_2) + (1|id_level_3), data = data2)
+
+summary(model2)
+```
+
+## Power for observed effect
+
+Based the observed sample size in each cluster and estimated intra class correlations, we observe the following power for the estimated effect:
+
+```{r}
+#| include: false
+power <- powerSim(
+  model2, 
+  test = fixed("predictor0", method = "t"),  
+  nsim = nsim,
+  progress = FALSE
+)
+```
+
+```{r}
+#| echo: false
+power
+```
+
+## Power curve for effect sizes
+
+We now simulate the power for different potential standardize effect sizes, ranging from 0 to .
+
+```{r}
+#| echo: false
+#| message: false
+
+es <- seq(0, .5, by = .01)
+names(es) <- es
+
+
+power_es2 <- map_dfr(
+  es, 
+  \(x) powerSimES(model2, x, nsim = nsim), 
+  .id = "effect_size"
+)
+
+```
+
+```{r}
+#| echo: false
+power_es2 |> 
+  mutate(across(c("mean", "lower", "upper"), \(x) round(100 * x))) |> 
+  select(
+    "Effect size" = effect_size,
+    Power = mean,
+    "95% lo" = lower,
+    "95% hi" = upper
+  )
+```
